@@ -21,7 +21,8 @@ import requests
 import sys
 from json2html import *
 import logging
-import requests
+from kafka import KafkaProducer
+import argparse
 
 # These two lines enable debugging at httplib level (requests->urllib3->http.client)
 # You will see the REQUEST, including HEADERS and DATA, and RESPONSE with HEADERS but without DATA.
@@ -74,6 +75,8 @@ service_dict = {
     "reviews" : reviews,
 }
 
+kafka_producer = None
+
 def getForwardHeaders(request):
     headers = {}
 
@@ -120,6 +123,8 @@ def health():
 @app.route('/login', methods=['POST'])
 def login():
     user = request.values.get('username')
+    if kafka_producer is not None:
+        kafka_producer.send('authaudit', ('user %s logged in' % (user,)).encode('utf-8'))
     response = app.make_response(redirect(request.referrer))
     response.set_cookie('user', user)
     return response
@@ -127,6 +132,9 @@ def login():
 
 @app.route('/logout', methods=['GET'])
 def logout():
+    user = request.cookies.get("user", "")
+    if user and kafka_producer is not None:
+        kafka_producer.send('authaudit', ('user %s logged out' % (user,)).encode('utf-8'))
     response = app.make_response(redirect(request.referrer))
     response.set_cookie('user', '', expires=0)
     return response
@@ -246,13 +254,22 @@ class Writer(object):
         self.file.flush()
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print "usage: %s port" % (sys.argv[0])
-        sys.exit(-1)
+    parser = argparse.ArgumentParser(description='Bookinfo Product Page.')
+    parser.add_argument('--kafka-bootstrap-server', help='Kafka bootstrap server',
+                        metavar='SERVER[:PORT]')
+    parser.add_argument('port', help='listen port', type=int, metavar='PORT')
 
-    p = int(sys.argv[1])
+    args = parser.parse_args()
+
     sys.stderr = Writer('stderr.log')
     sys.stdout = Writer('stdout.log')
-    print "start at port %s" % (p)
-    app.run(host='0.0.0.0', port=p, debug=True, threaded=True)
 
+    if args.kafka_bootstrap_server:
+        print "enable Kafka audit log using bootstrap server %s" % (args.kafka_bootstrap_server,)
+        kafka_producer = KafkaProducer(
+            bootstrap_servers=args.kafka_bootstrap_server,
+            api_version=(0, 10, 1))
+
+    print "start at port %s" % (args.port,)
+
+    app.run(host='0.0.0.0', port=args.port, debug=True, threaded=True)
