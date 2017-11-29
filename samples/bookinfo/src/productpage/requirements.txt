@@ -5,4 +5,5 @@ flask_bootstrap
 json2html
 simplejson
 gevent
+kafka-python
 
