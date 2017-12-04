@@ -23,6 +23,7 @@ from json2html import *
 import logging
 from kafka import KafkaProducer
 import argparse
+import datetime
 
 # These two lines enable debugging at httplib level (requests->urllib3->http.client)
 # You will see the REQUEST, including HEADERS and DATA, and RESPONSE with HEADERS but without DATA.
@@ -124,7 +125,12 @@ def health():
 def login():
     user = request.values.get('username')
     if kafka_producer is not None:
-        kafka_producer.send('authaudit', ('user %s logged in' % (user,)).encode('utf-8'))
+        kafka_producer.send('authaudit', json.dumps({
+            'event': 'login',
+            'user': user,
+            'remote_addr': request.remote_addr,
+            'timestamp': datetime.datetime.utcnow().isoformat()
+        }))
     response = app.make_response(redirect(request.referrer))
     response.set_cookie('user', user)
     return response
@@ -134,7 +140,12 @@ def login():
 def logout():
     user = request.cookies.get("user", "")
     if user and kafka_producer is not None:
-        kafka_producer.send('authaudit', ('user %s logged out' % (user,)).encode('utf-8'))
+        kafka_producer.send('authaudit', json.dumps({
+            'event': 'logout',
+            'user': user,
+            'remote_addr': request.remote_addr,
+            'timestamp': datetime.datetime.utcnow().isoformat()
+        }))
     response = app.make_response(redirect(request.referrer))
     response.set_cookie('user', '', expires=0)
     return response
